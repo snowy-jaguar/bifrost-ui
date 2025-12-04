@@ -11,6 +11,7 @@ dependencies = [
     "pydantic>=2.0",
     "httpx>=0.24.0",
     "python-multipart>=0.0.6",
+    "msgspec>=0.20.0",
 ]
 
 [build-system]

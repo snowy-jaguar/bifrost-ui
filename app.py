@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import logging
 from typing import Any
 
 from fastapi import FastAPI, Request, HTTPException, Form, UploadFile, File, Depends
@@ -10,25 +9,30 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 import httpx
 
-logger = logging.getLogger("bifrost_ui")
+from logging_config import setup_logging
+from config import config
 
-BASE_URL = os.environ.get("BIFROST_API_BASE_URL", "http://127.0.0.1:8000")
-UI_TOKEN = os.environ.get("BIFROST_UI_TOKEN")
-if not UI_TOKEN:
+# Initialize logging before using logger
+log_listener = setup_logging()
+
+# Validate required configuration
+if not config.ui_token:
     raise RuntimeError("BIFROST_UI_TOKEN is required for gateway-ui to talk to the API")
-UI_PASSWORD = os.environ.get("GATEWAY_UI_PASSWORD", "changeme")
-SESSION_KEY = os.environ.get("GATEWAY_UI_SESSION_KEY", "dev-session-secret")
 
-app = FastAPI(title="Bifrost Gateway UI")
-app.add_middleware(SessionMiddleware, secret_key=SESSION_KEY)
+app = FastAPI(
+    title=config.name,
+    version=config.version,
+    description=config.description
+)
+app.add_middleware(SessionMiddleware, secret_key=config.session_key)
 templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
 
 client = httpx.AsyncClient(timeout=10.0)
 
 
 async def api_get(path: str) -> Any:
-    url = BASE_URL.rstrip("/") + path
-    headers = {"Authorization": f"Bearer {UI_TOKEN}"}
+    url = config.api_base_url.rstrip("/") + path
+    headers = {"Authorization": f"Bearer {config.ui_token}"}
     resp = await client.get(url, headers=headers)
     if resp.status_code >= 400:
         raise HTTPException(status_code=resp.status_code, detail=resp.text)
@@ -36,8 +40,8 @@ async def api_get(path: str) -> Any:
 
 
 async def api_post(path: str, json: dict) -> Any:
-    url = BASE_URL.rstrip("/") + path
-    headers = {"Authorization": f"Bearer {UI_TOKEN}"}
+    url = config.api_base_url.rstrip("/") + path
+    headers = {"Authorization": f"Bearer {config.ui_token}"}
     resp = await client.post(url, headers=headers, json=json)
     if resp.status_code >= 400:
         raise HTTPException(status_code=resp.status_code, detail=resp.text)
@@ -77,7 +81,7 @@ async def dashboard(request: Request):
         data = await api_get("/wg/list")
         configs = data.get("configs", [])
     except Exception as e:
-        logger.debug("Failed to fetch configs: %s", e)
+        config.logger.debug("Failed to fetch configs: %s", e)
     try:
         sys = await api_get("/status/system")
         active = sys.get("active_wg")
@@ -159,7 +163,7 @@ async def login_form(request: Request):
 
 @app.post("/login")
 async def login(request: Request, password: str = Form(...)):
-    expected = UI_PASSWORD
+    expected = config.ui_password
     if password != expected:
         return templates.TemplateResponse("login.html", {"request": request, "error": "Invalid credentials"}, status_code=401)
     request.session["auth"] = True
@@ -170,5 +174,3 @@ async def login(request: Request, password: str = Form(...)):
 async def logout(request: Request):
     request.session.clear()
     return RedirectResponse(url='/login', status_code=303)
-
-*** End Patch
